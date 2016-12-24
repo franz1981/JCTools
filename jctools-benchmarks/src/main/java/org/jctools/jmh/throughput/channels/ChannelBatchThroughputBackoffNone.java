@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.jctools.jmh.throughput.channels;
 
 import java.nio.ByteBuffer;
@@ -50,7 +51,7 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
 @Warmup(iterations = 5, time = 3, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 3, timeUnit = TimeUnit.SECONDS)
-public class ChannelThroughputBackoffNone {
+public class ChannelBatchThroughputBackoffNone {
 
    private static final long DELAY_PRODUCER = Long.getLong("delay.p", 0L);
    private static final long DELAY_CONSUMER = Long.getLong("delay.c", 0L);
@@ -58,7 +59,8 @@ public class ChannelThroughputBackoffNone {
    @Param(value = {"132000"})
    int capacity;
    @Param(value = {"SpMulticast", "Spsc", "Mpsc"})
-   Type type;
+   ChannelThroughputBackoffNone.Type type;
+   int limit;
    private ByteBuffer buffer;
    private Channel<Ping> channel;
    private ChannelProducer<Ping> producer;
@@ -69,7 +71,7 @@ public class ChannelThroughputBackoffNone {
    private long writeValue = 1L;
 
    public static void main(String[] args) throws RunnerException {
-      Options opt = new OptionsBuilder().forks(0).include(ChannelThroughputBackoffNone.class.getSimpleName()).build();
+      Options opt = new OptionsBuilder().include(ChannelBatchThroughputBackoffNone.class.getSimpleName()).build();
 
       new Runner(opt).run();
    }
@@ -99,6 +101,7 @@ public class ChannelThroughputBackoffNone {
       }
       producer = channel.producer();
       consumer = channel.consumer(receiver);
+      this.limit = channel.maximumCapacity();
       OfferCounters oc = new OfferCounters();
       PollCounters pc = new PollCounters();
       for (int i = 0; i < 100000; i++) {
@@ -126,11 +129,12 @@ public class ChannelThroughputBackoffNone {
 
    @Benchmark
    @Group("tpt")
-   public void poll(PollCounters counters, ConsumerMarker cm) {
-      if (!consumer.read()) {
+   public void poll(PollCounters counters, ConsumerMarker cs) {
+      final int read = consumer.read(this.limit);
+      if (read == 0) {
          counters.pollsFailed++;
       } else {
-         counters.pollsMade++;
+         counters.pollsMade += read;
       }
       if (DELAY_CONSUMER != 0) {
          Blackhole.consumeCPU(DELAY_CONSUMER);
@@ -143,8 +147,11 @@ public class ChannelThroughputBackoffNone {
          return;
       // sadly the iteration tear down is performed from each participating thread, so we need to guess
       // which is which (can't have concurrent access to poll).
-      while (consumer.read()) {
-         ;
+      //TODO use chase method for multicast channel!!!
+      for (int i = 0; i < 2; i++) {
+         while (consumer.read()) {
+
+         }
       }
    }
 
