@@ -142,6 +142,87 @@ final class OffHeapFixedMessageSizeTailer {
 
    }
 
+   public boolean validateRawAcquire(final long listenedSequence) {
+      UNSAFE.loadFence();
+      //LoadLoad + LoadStore
+      final long sequenceOffset = MessageLayout.calcSequenceOffset(bufferAddress, listenedSequence, mask, slotSize);
+      final long sequence = MessageLayout.lvSequence(sequenceOffset);
+      //LoadLoad + LoadStore
+      //still valid?
+      final long expectedCommittedSequence = listenedSequence + 1;
+      if (sequence == expectedCommittedSequence) {
+         //is valid: the first read-acquire on the sequence has copied a valid content of the message
+         return true;
+      } else {
+         //lost experienced!
+         final long lost = TailerLayout.lpLost(lostAddress);
+         chase(listenedSequence, sequence, lost, lostAddress, listenedAddress);
+         return false;
+      }
+   }
+
+   public long readNext() {
+      final long mask = this.mask;
+      final long bufferAddress = this.bufferAddress;
+      final int slotSize = this.slotSize;
+      final long listenedAddress = this.listenedAddress;
+      final long lostAddress = this.lostAddress;
+
+      final long listenedSequence = TailerLayout.lpListened(listenedAddress);
+      long lost = TailerLayout.lpLost(lostAddress);
+
+      final long sequenceOffset = MessageLayout.calcSequenceOffset(bufferAddress, listenedSequence, mask, slotSize);
+      final long sequence = MessageLayout.lvSequence(sequenceOffset);
+      //LoadLoad + LoadStore
+      final long expectedCommittedSequence = listenedSequence + 1;
+      if (sequence == expectedCommittedSequence) {
+         //move on -> a call to valide could move it!!
+         TailerLayout.spListened(listenedAddress, expectedCommittedSequence);
+         return listenedSequence;
+      } else {
+         if (sequence > expectedCommittedSequence) {
+            //lost experienced!
+            chase(listenedSequence, sequence, lost, lostAddress, listenedAddress);
+            return LOST;
+         } else {
+            //empty!
+            return EOF;
+         }
+      }
+   }
+
+   public long readRawAcquire() {
+      final long mask = this.mask;
+      final long bufferAddress = this.bufferAddress;
+      final int slotSize = this.slotSize;
+      final long listenedAddress = this.listenedAddress;
+      final long lostAddress = this.lostAddress;
+
+      final long listenedSequence = TailerLayout.lpListened(listenedAddress);
+      long lost = TailerLayout.lpLost(lostAddress);
+
+      final long sequenceOffset = MessageLayout.calcSequenceOffset(bufferAddress, listenedSequence, mask, slotSize);
+      final long sequence = MessageLayout.lvSequence(sequenceOffset);
+      //LoadLoad + LoadStore
+      final long expectedCommittedSequence = listenedSequence + 1;
+      if (sequence == expectedCommittedSequence) {
+         return listenedSequence;
+      } else {
+         if (sequence > expectedCommittedSequence) {
+            //lost experienced!
+            chase(listenedSequence, sequence, lost, lostAddress, listenedAddress);
+            return LOST;
+         } else {
+            //empty!
+            return EOF;
+         }
+      }
+   }
+
+   public long elementAddressOf(long sequence) {
+      return MessageLayout.calcSequenceOffset(bufferAddress, sequence, mask, slotSize) + MessageLayout.SEQUENCE_INDICATOR_SIZE;
+   }
+
    public long readAcquire() {
       final long mask = this.mask;
       final long bufferAddress = this.bufferAddress;
