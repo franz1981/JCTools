@@ -13,9 +13,15 @@
 
     <properties>
         <jmh-core.version>1.19</jmh-core.version>
+        <aeron.version>1.6.0</aeron.version>
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>io.aeron</groupId>
+            <artifactId>aeron-all</artifactId>
+            <version>${aeron.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.jctools</groupId>
             <artifactId>jctools-core</artifactId>
