@@ -70,7 +70,7 @@ public class MpqBurstCost
     }
 
     @Benchmark
-    @GroupThreads(7)
+    //@GroupThreads(7)
     public void burstCost(Stop stop)
     {
         final int burst = burstSize;
