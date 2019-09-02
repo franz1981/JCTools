@@ -280,10 +280,6 @@ public class MpscUnboundedXaddArrayQueue<E> extends MpscProgressiveChunkedQueueP
             if (lvProducerChunkIndex() == producerChunkIndex)
             {
                 producerBuffer = appendNextChunk(producerBuffer, producerChunkIndex, chunkMask + 1);
-                if (producerBuffer != null && jumpBackward == -1)
-                {
-                    return producerBuffer;
-                }
             }
             else
             {
