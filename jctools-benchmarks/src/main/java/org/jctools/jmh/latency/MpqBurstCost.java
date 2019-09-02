@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class MpqBurstCost
 {
     static final Go GO = new Go();
-    @Param( {"SpscArrayQueue", "MpscArrayQueue", "SpmcArrayQueue", "MpmcArrayQueue"})
+    @Param( { "MpscUnboundedXaddArrayQueue", "MpscUnboundedArrayQueue"})
     String qType;
     @Param( {"100"})
     int burstSize;
@@ -70,6 +70,7 @@ public class MpqBurstCost
     }
 
     @Benchmark
+    @GroupThreads(7)
     public void burstCost(Stop stop)
     {
         final int burst = burstSize;
@@ -94,6 +95,7 @@ public class MpqBurstCost
             ;
         }
     }
+
 
     @TearDown
     public void killConsumer() throws InterruptedException
