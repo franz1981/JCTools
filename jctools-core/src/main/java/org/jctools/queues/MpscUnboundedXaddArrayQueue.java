@@ -349,11 +349,24 @@ public class MpscUnboundedXaddArrayQueue<E> extends MpscProgressiveChunkedQueueP
         final int chunkShift = this.chunkShift;
         final long producerSeq = getAndIncrementProducerIndex();
         final int pOffset = (int) (producerSeq & chunkMask);
-        final long chunkIndex = producerSeq >> chunkShift;
+        final long expectedChunkIndex = producerSeq >> chunkShift;
         AtomicChunk<E> producerBuffer = lvProducerBuffer();
-        if (producerBuffer.lvIndex() != chunkIndex)
+        final long chunkIndex = producerBuffer.lvIndex();
+        final long jumpBackward = chunkIndex - expectedChunkIndex;
+        if (jumpBackward != 0)
         {
-            producerBuffer = producerBufferOf(producerBuffer, chunkIndex);
+            if (jumpBackward == -1 && lvProducerChunkIndex() == chunkIndex)
+            {
+                producerBuffer = appendNextChunk(producerBuffer, chunkIndex, chunkMask + 1);
+                if (producerBuffer == null)
+                {
+                    producerBuffer = producerBufferOf(null, expectedChunkIndex);
+                }
+            }
+            else
+            {
+                producerBuffer = producerBufferOf(producerBuffer, expectedChunkIndex);
+            }
         }
         producerBuffer.soElement(pOffset, e);
         return true;
