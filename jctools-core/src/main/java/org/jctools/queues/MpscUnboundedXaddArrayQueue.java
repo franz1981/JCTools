@@ -37,9 +37,9 @@ abstract class MpscProgressiveChunkedQueuePad1<E> extends AbstractQueue<E> imple
         private static final long INDEX_OFFSET = fieldOffset(AtomicChunk.class, "index");
         private volatile AtomicChunk<E> prev;
         private volatile long index;
-        private final E[] buffer;
+        final E[] buffer;
         private final boolean pooled;
-        private final int startIndex;
+        final int startIndex;
 
         AtomicChunk(long index, AtomicChunk<E> prev, boolean pooled, E[] buffer, int startIndex)
         {
@@ -380,6 +380,16 @@ public class MpscUnboundedXaddArrayQueue<E> extends MpscProgressiveChunkedQueueP
         return true;
     }
 
+    private static <E> E spinForElement(E[] buffer, long offset)
+    {
+        E e;
+        while ((e = UnsafeRefArrayAccess.lvElement(buffer, offset)) == null)
+        {
+
+        }
+        return e;
+    }
+
     private static <E> E spinForElement(AtomicChunk<E> chunk, int offset)
     {
         E e;
@@ -388,6 +398,22 @@ public class MpscUnboundedXaddArrayQueue<E> extends MpscProgressiveChunkedQueueP
 
         }
         return e;
+    }
+
+    private AtomicChunk<E> spinForNextIfNotEmpty(E[] buffer, long nextOffset, long consumerIndex)
+    {
+        Object e = UnsafeRefArrayAccess.lvElement(buffer, nextOffset);
+        if (e == null)
+        {
+            if (lvProducerIndex() == consumerIndex)
+            {
+                return null;
+            }
+            while ((e = UnsafeRefArrayAccess.lvElement(buffer, nextOffset)) == null)
+            {
+            }
+        }
+        return (AtomicChunk<E>) e;
     }
 
     private AtomicChunk<E> spinForNextIfNotEmpty(AtomicChunk<E> consumerBuffer, long consumerIndex, int chunkSize)
@@ -408,15 +434,18 @@ public class MpscUnboundedXaddArrayQueue<E> extends MpscProgressiveChunkedQueueP
     }
 
 
-    private AtomicChunk<E> pollNextBuffer(AtomicChunk<E> consumerBuffer, long consumerIndex, int chunkSize)
+    private AtomicChunk<E> pollNextBuffer(AtomicChunk<E> consumerBuffer,long consumerIndex, int chunkSize)
     {
-        final AtomicChunk<E> next = spinForNextIfNotEmpty(consumerBuffer, consumerIndex, chunkSize);
+        final E[] buffer = consumerBuffer.buffer;
+        final int startIndex = consumerBuffer.startIndex;
+        final long nextOffset = UnsafeRefArrayAccess.calcElementOffset(startIndex + chunkSize);
+        final AtomicChunk<E> next = spinForNextIfNotEmpty(buffer, nextOffset, consumerIndex);
         if (next == null)
         {
             return null;
         }
         //save from nepotism
-        consumerBuffer.spNext(chunkSize, null);
+        UnsafeRefArrayAccess.spElement(buffer, nextOffset, null);
         //change the chunkIndex to a non valid value
         //to stop offering threads to use this buffer
         consumerBuffer.soIndex(AtomicChunk.NIL_CHUNK_INDEX);
@@ -435,9 +464,11 @@ public class MpscUnboundedXaddArrayQueue<E> extends MpscProgressiveChunkedQueueP
         final int chunkMask = this.chunkMask;
         final long consumerIndex = this.lpConsumerIndex();
         AtomicChunk<E> consumerBuffer = this.consumerBuffer;
+        final E[] buffer;
         final int consumerOffset = (int) (consumerIndex & chunkMask);
         final int chunkSize = chunkMask + 1;
         final boolean firstElementOfNewChunk = consumerOffset == 0 && consumerIndex >= chunkSize;
+        final long bufferOffset;
         if (firstElementOfNewChunk)
         {
             consumerBuffer = pollNextBuffer(consumerBuffer, consumerIndex, chunkSize);
@@ -446,13 +477,19 @@ public class MpscUnboundedXaddArrayQueue<E> extends MpscProgressiveChunkedQueueP
                 return null;
             }
             this.consumerBuffer = consumerBuffer;
+            buffer = consumerBuffer.buffer;
+            final int startIndex = consumerBuffer.startIndex;
+            bufferOffset = UnsafeRefArrayAccess.calcElementOffset(consumerOffset + startIndex);
         }
         else
         {
-            final E e = consumerBuffer.lvElement(consumerOffset);
+            buffer = consumerBuffer.buffer;
+            final int startIndex = consumerBuffer.startIndex;
+            bufferOffset = UnsafeRefArrayAccess.calcElementOffset(consumerOffset + startIndex);
+            final E e = UnsafeRefArrayAccess.lvElement(buffer, bufferOffset);
             if (e != null)
             {
-                consumerBuffer.spElement(consumerOffset, null);
+                UnsafeRefArrayAccess.spElement(buffer, bufferOffset, null);
                 soConsumerIndex(consumerIndex + 1);
                 return e;
             }
@@ -461,8 +498,8 @@ public class MpscUnboundedXaddArrayQueue<E> extends MpscProgressiveChunkedQueueP
                 return null;
             }
         }
-        final E e = spinForElement(consumerBuffer, consumerOffset);
-        consumerBuffer.spElement(consumerOffset, null);
+        final E e = spinForElement(buffer, bufferOffset);
+        UnsafeRefArrayAccess.spElement(buffer, bufferOffset, null);
         soConsumerIndex(consumerIndex + 1);
         return e;
     }
