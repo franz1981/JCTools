@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class FAABurstCost
 {
     static final Go GO = new Go();
-    @Param( {"SpscArrayQueue", "MpscArrayQueue", "SpmcArrayQueue", "MpmcArrayQueue"})
+    @Param( {"100"})
     int burstSize;
 
     int consumerCount = 1;
