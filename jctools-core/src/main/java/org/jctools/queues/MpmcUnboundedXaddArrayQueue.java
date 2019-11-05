@@ -366,7 +366,7 @@ public class MpmcUnboundedXaddArrayQueue<E> extends MpmcProgressiveChunkedQueueP
             if (newChunk != null)
             {
                 //single-writer: producerBuffer::index == nextChunkIndex is protecting it
-                assert newChunk.lvIndex() == AtomicChunk.NIL_CHUNK_INDEX;
+                assert newChunk.lvIndex() < producerBuffer.lvIndex();
                 newChunk.spPrev(producerBuffer);
                 //index set is releasing prev, allowing other pending offers to continue
                 newChunk.soIndex(nextChunkIndex);
@@ -446,9 +446,6 @@ public class MpmcUnboundedXaddArrayQueue<E> extends MpmcProgressiveChunkedQueueP
         {
             next = consumerBuffer.lvNext();
         }
-        //prevent other consumers to use it, but need to await next != null
-        //or the producer won't be able to append next on a NIL_CHUNK_INDEX!
-        consumerBuffer.soIndex(AtomicChunk.NIL_CHUNK_INDEX);
         //we can freely spin awaiting producer, because we are the only one in charge to
         //rotate the consumer buffer and use next
         final E e = spinForElement(next, consumerOffset);
