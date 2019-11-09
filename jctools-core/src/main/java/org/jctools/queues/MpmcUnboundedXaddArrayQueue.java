@@ -403,6 +403,10 @@ public class MpmcUnboundedXaddArrayQueue<E> extends MpmcProgressiveChunkedQueueP
         {
             throw new NullPointerException();
         }
+        if (freeBuffer.isEmpty())
+        {
+            return false;
+        }
         final int chunkMask = this.chunkMask;
         final int chunkShift = this.chunkShift;
         final long producerSeq = getAndIncrementProducerIndex();
