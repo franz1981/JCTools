@@ -9,8 +9,7 @@ import org.openjdk.jmh.infra.BenchmarkParams;
 import org.openjdk.jmh.infra.Blackhole;
 
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicLongFieldUpdater;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.LockSupport;
 
 @State(Scope.Group)
@@ -36,18 +35,13 @@ public class ExecutorThroughput
     @Param(value = {"2"})
     int consumers;
     ExecutorService executorService;
-    AtomicLong producerId;
-    //it would be accessed from different threads, but not a big deal :)
-    OfferCounters[] counters;
+
+    LongAdder totalExecuted;
 
     @Setup
     public void createExecutor(BenchmarkParams params)
     {
-        producerId = new AtomicLong();
-        final int[] threadGroups = params.getThreadGroups();
-        final int producers = threadGroups[0];
-        //System.out.println("total producers = " + producers);
-        counters = new OfferCounters[producers];
+        totalExecuted = new LongAdder();
         switch (eType)
         {
             case "XADD":
@@ -94,35 +88,20 @@ public class ExecutorThroughput
     @State(Scope.Thread)
     public static class OfferCounters
     {
-        final AtomicLongFieldUpdater<OfferCounters> POLLS_UPDATER =
-            AtomicLongFieldUpdater.newUpdater(OfferCounters.class, "polls");
-        public volatile long polls;
-        public int producerId;
         private Runnable execute;
-        private OfferCounters[] counters;
 
         @Setup(Level.Iteration)
         public void initCounter(ExecutorThroughput cfg)
         {
-            producerId = (int) (cfg.producerId.getAndIncrement() % cfg.counters.length);
-            //System.out.println("Setting up " + producerId);
-            cfg.counters[producerId] = this;
-            counters = cfg.counters;
-            polls = 0;
+            final LongAdder adder = cfg.totalExecuted;
             execute = () -> {
                 //different consumers could be hit this
-                POLLS_UPDATER.getAndIncrement(OfferCounters.this);
+                adder.increment();
                 if (DELAY_CONSUMER != 0)
                 {
                     Blackhole.consumeCPU(DELAY_CONSUMER);
                 }
             };
-        }
-
-        @TearDown(Level.Iteration)
-        public void closeCounter()
-        {
-            counters[producerId] = null;
         }
     }
 
@@ -148,15 +127,11 @@ public class ExecutorThroughput
     @Group("tpt")
     public void pollStats(ExecutorCounters counter)
     {
-        long total = 0;
-        for (OfferCounters c : counters)
+        final long total = totalExecuted.sum();
+        if (total > counter.polls)
         {
-            if (c != null)
-            {
-                total += c.polls;
-            }
+            counter.polls = total;
         }
-        counter.polls = total;
         LockSupport.parkNanos(REFRESH_STATS_NS);
     }
 
