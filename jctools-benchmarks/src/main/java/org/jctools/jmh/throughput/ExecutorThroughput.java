@@ -58,28 +58,15 @@ public class ExecutorThroughput
                     consumers,
                     1,
                     TimeUnit.DAYS,
-                    blockingQueue,
-                    r -> {
-                        final Thread t = new Thread(r);
-                        t.setDaemon(true);
-                        return t;
-                    });
+                    blockingQueue);
                 break;
             case "LTQ":
                 executorService =
-                    new ThreadPoolExecutor(consumers, consumers, 1, TimeUnit.DAYS, new LinkedTransferQueue<>(), r -> {
-                        final Thread t = new Thread(r);
-                        t.setDaemon(true);
-                        return t;
-                    });
+                    new ThreadPoolExecutor(consumers, consumers, 1, TimeUnit.DAYS, new LinkedTransferQueue<>());
                 break;
             case "BLQ":
                 executorService =
-                    new ThreadPoolExecutor(consumers, consumers, 1, TimeUnit.DAYS, new LinkedBlockingQueue<>(), r -> {
-                        final Thread t = new Thread(r);
-                        t.setDaemon(true);
-                        return t;
-                    });
+                    new ThreadPoolExecutor(consumers, consumers, 1, TimeUnit.DAYS, new LinkedBlockingQueue<>());
                 break;
             case "FJ":
                 //TODO JDK 11 allows more fine tuning that cannot be ignored
@@ -131,6 +118,23 @@ public class ExecutorThroughput
         while (polls.sum() != offers.sum())
         {
             Thread.yield();
+        }
+    }
+
+    @TearDown(Level.Trial)
+    public void shutdown()
+    {
+        executorService.shutdown();
+        try
+        {
+            while (!executorService.awaitTermination(1, TimeUnit.MINUTES))
+            {
+                Thread.yield();
+            }
+        }
+        catch (InterruptedException e)
+        {
+            e.printStackTrace();
         }
     }
 }
