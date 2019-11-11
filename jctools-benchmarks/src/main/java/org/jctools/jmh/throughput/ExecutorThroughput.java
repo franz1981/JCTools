@@ -9,8 +9,7 @@ import org.openjdk.jmh.infra.BenchmarkParams;
 import org.openjdk.jmh.infra.Blackhole;
 
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicLongFieldUpdater;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.LockSupport;
 
 @State(Scope.Group)
@@ -36,18 +35,18 @@ public class ExecutorThroughput
     @Param(value = {"2"})
     int consumers;
     ExecutorService executorService;
-    AtomicLong producerId;
-    //it would be accessed from different threads, but not a big deal :)
-    OfferCounters[] counters;
+    //these are quite good to scale, but are slow to be read, that's ok for this test :)
+    LongAdder offers = new LongAdder();
+    LongAdder polls = new LongAdder();
+    Runnable offerTask;
 
     @Setup
     public void createExecutor(BenchmarkParams params)
     {
-        producerId = new AtomicLong();
-        final int[] threadGroups = params.getThreadGroups();
-        final int producers = threadGroups[0];
-        //System.out.println("total producers = " + producers);
-        counters = new OfferCounters[producers];
+        LongAdder polls = new LongAdder();
+        offerTask = () -> polls.increment();
+        this.polls = polls;
+        this.offers = new LongAdder();
         switch (eType)
         {
             case "XADD":
@@ -91,39 +90,11 @@ public class ExecutorThroughput
         }
     }
 
-    @State(Scope.Thread)
-    public static class OfferCounters
+    @Setup(Level.Iteration)
+    public void resetCounters()
     {
-        final AtomicLongFieldUpdater<OfferCounters> POLLS_UPDATER =
-            AtomicLongFieldUpdater.newUpdater(OfferCounters.class, "polls");
-        public volatile long polls;
-        public int producerId;
-        private Runnable execute;
-        private OfferCounters[] counters;
-
-        @Setup(Level.Iteration)
-        public void initCounter(ExecutorThroughput cfg)
-        {
-            producerId = (int) (cfg.producerId.getAndIncrement() % cfg.counters.length);
-            //System.out.println("Setting up " + producerId);
-            cfg.counters[producerId] = this;
-            counters = cfg.counters;
-            polls = 0;
-            execute = () -> {
-                //different consumers could be hit this
-                POLLS_UPDATER.getAndIncrement(OfferCounters.this);
-                if (DELAY_CONSUMER != 0)
-                {
-                    Blackhole.consumeCPU(DELAY_CONSUMER);
-                }
-            };
-        }
-
-        @TearDown(Level.Iteration)
-        public void closeCounter()
-        {
-            counters[producerId] = null;
-        }
+        polls.reset();
+        offers.reset();
     }
 
     @State(Scope.Thread)
@@ -135,9 +106,10 @@ public class ExecutorThroughput
 
     @Benchmark
     @Group("tpt")
-    public void offer(OfferCounters counters)
+    public void offer()
     {
-        executorService.execute(counters.execute);
+        offers.increment();
+        executorService.execute(offerTask);
         if (DELAY_PRODUCER != 0)
         {
             Blackhole.consumeCPU(DELAY_PRODUCER);
@@ -148,38 +120,17 @@ public class ExecutorThroughput
     @Group("tpt")
     public void pollStats(ExecutorCounters counter)
     {
-        long total = 0;
-        for (OfferCounters c : counters)
-        {
-            if (c != null)
-            {
-                total += c.polls;
-            }
-        }
-        counter.polls = total;
+        //NOTE: pollStats won't be called anymore while emptyExecutor is being called
+        counter.polls = polls.sum();
         LockSupport.parkNanos(REFRESH_STATS_NS);
     }
 
     @TearDown(Level.Iteration)
     public void emptyExecutor()
     {
-        try
+        while (polls.sum() != offers.sum())
         {
-            executorService.submit(() -> {
-
-            }).get(1, TimeUnit.MINUTES);
-        }
-        catch (InterruptedException e)
-        {
-            e.printStackTrace();
-        }
-        catch (ExecutionException e)
-        {
-            e.printStackTrace();
-        }
-        catch (TimeoutException e)
-        {
-            e.printStackTrace();
+            Thread.yield();
         }
     }
 }
