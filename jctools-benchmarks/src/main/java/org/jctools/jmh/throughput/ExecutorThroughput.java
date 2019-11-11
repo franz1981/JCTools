@@ -9,7 +9,7 @@ import org.openjdk.jmh.infra.BenchmarkParams;
 import org.openjdk.jmh.infra.Blackhole;
 
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.LongAdder;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 
 @State(Scope.Group)
@@ -35,30 +35,55 @@ public class ExecutorThroughput
     @Param(value = {"2"})
     int consumers;
     ExecutorService executorService;
-    //these are quite good to scale, but are slow to be read, that's ok for this test :)
-    LongAdder offers = new LongAdder();
-    LongAdder polls = new LongAdder();
+    AtomicLong[] offers;
+    AtomicLong[] polls;
     Runnable offerTask;
+    long startIter;
+    AtomicLong producerId;
+    AtomicLong consumerId;
+    ThreadLocal<AtomicLong> tlCounters;
 
     @Setup
     public void createExecutor(BenchmarkParams params)
     {
-        LongAdder polls = new LongAdder();
-        offerTask = () -> polls.increment();
-        this.polls = polls;
-        this.offers = new LongAdder();
+        consumerId = new AtomicLong();
+        producerId = new AtomicLong();
+        polls = new AtomicLong[consumers];
+        for (int i = 0; i < polls.length; i++)
+        {
+            polls[i] = new AtomicLong();
+        }
+        tlCounters = ThreadLocal.withInitial(() -> {
+            final int id = (int) consumerId.getAndIncrement();
+            final AtomicLong poll = polls[id];
+            if (poll.get() != 0)
+            {
+                throw new IllegalStateException("we have a problem!");
+            }
+            return poll;
+        });
+        offers = new AtomicLong[params.getThreadGroups()[0]];
+        for (int i = 0; i < offers.length; i++)
+        {
+            offers[i] = new AtomicLong();
+        }
+        final ThreadLocal<AtomicLong> counters = this.tlCounters;
+        offerTask = () -> {
+            final Thread t = Thread.currentThread();
+            final AtomicLong counter = counters.get();
+            counter.lazySet(counter.get() + 1);
+            if (DELAY_CONSUMER != 0)
+            {
+                Blackhole.consumeCPU(DELAY_CONSUMER);
+            }
+        };
         switch (eType)
         {
             case "XADD":
                 final BlockingQueue<Runnable> blockingQueue =
                     BlockingQueueFactory.getBlockingQueueFrom(MpmcUnboundedXaddArrayQueue.class,
                         McParkTakeStrategy.class, YieldPutStrategy.class, Integer.parseInt(initialCapacity));
-                executorService = new ThreadPoolExecutor(
-                    consumers,
-                    consumers,
-                    1,
-                    TimeUnit.DAYS,
-                    blockingQueue);
+                executorService = new ThreadPoolExecutor(consumers, consumers, 1, TimeUnit.DAYS, blockingQueue);
                 break;
             case "LTQ":
                 executorService =
@@ -77,11 +102,43 @@ public class ExecutorThroughput
         }
     }
 
+    @State(Scope.Thread)
+    public static class OfferId
+    {
+        int offerId;
+
+        @Setup(Level.Iteration)
+        public void init(ExecutorThroughput tpt)
+        {
+            offerId = (int) (tpt.producerId.getAndIncrement() % tpt.offers.length);
+        }
+    }
+
     @Setup(Level.Iteration)
     public void resetCounters()
     {
-        polls.reset();
-        offers.reset();
+        for (AtomicLong o : polls)
+        {
+            o.set(0);
+        }
+        for (AtomicLong o : offers)
+        {
+            o.set(0);
+        }
+        startIter = System.nanoTime();
+    }
+
+    @Benchmark
+    @Group("tpt")
+    public void offer(OfferId offerId)
+    {
+        final AtomicLong offered = offers[offerId.offerId];
+        offered.lazySet(offered.get() + 1);
+        executorService.execute(offerTask);
+        if (DELAY_PRODUCER != 0)
+        {
+            Blackhole.consumeCPU(DELAY_PRODUCER);
+        }
     }
 
     @State(Scope.Thread)
@@ -93,32 +150,38 @@ public class ExecutorThroughput
 
     @Benchmark
     @Group("tpt")
-    public void offer()
-    {
-        offers.increment();
-        executorService.execute(offerTask);
-        if (DELAY_PRODUCER != 0)
-        {
-            Blackhole.consumeCPU(DELAY_PRODUCER);
-        }
-    }
-
-    @Benchmark
-    @Group("tpt")
     public void pollStats(ExecutorCounters counter)
     {
         //NOTE: pollStats won't be called anymore while emptyExecutor is being called
-        counter.polls = polls.sum();
+        counter.polls = sum(polls);
         LockSupport.parkNanos(REFRESH_STATS_NS);
     }
 
-    @TearDown(Level.Iteration)
-    public void emptyExecutor()
+    private static long sum(AtomicLong[] longs)
     {
-        while (polls.sum() != offers.sum())
+        long total = 0;
+        for (AtomicLong l : longs)
+        {
+            total += l.get();
+        }
+        return total;
+    }
+
+    @TearDown(Level.Iteration)
+    public void emptyExecutor(BenchmarkParams params)
+    {
+        long total;
+        while ((total = sum(polls)) != sum(offers))
         {
             Thread.yield();
         }
+        /*
+        final long elapsedNanos = System.nanoTime() - startIter;
+        final TimeUnit timeUnit = params.getTimeUnit();
+        final double tpt = total * ((double) TimeUnit.NANOSECONDS.convert(1, timeUnit) / (double) elapsedNanos);
+        System.out.println(
+            "End2End Throughput: " + String.format("%.3f", tpt) + " ops/" + timeUnit.toString().toLowerCase());
+         */
     }
 
     @TearDown(Level.Trial)
