@@ -130,7 +130,7 @@ public class BlockingQueueFactory {
 
     }
 
-    private static <E> BlockingQueue<E> getBlockingQueueFrom(Class<? extends Queue> queueClass,
+    public static <E> BlockingQueue<E> getBlockingQueueFrom(Class<? extends Queue> queueClass,
             Class<? extends TakeStrategy> takeStrat, Class<? extends PutStrategy> putStrat, int capacity) {
         // Build model for template filling
         BlockingModel model = new BlockingModel();
