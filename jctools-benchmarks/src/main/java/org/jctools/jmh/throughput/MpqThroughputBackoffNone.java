@@ -14,6 +14,7 @@
 package org.jctools.jmh.throughput;
 
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.jctools.queues.MessagePassingQueue;
 import org.jctools.queues.MessagePassingQueueByTypeFactory;
@@ -82,9 +83,11 @@ public class MpqThroughputBackoffNone {
 
     @AuxCounters
     @State(Scope.Thread)
-    public static class PollCounters {
+    public static class PollCounters extends AtomicLong
+    {
         public long pollsFailed;
         public long pollsMade;
+        public long spins;
     }
 
     @AuxCounters
@@ -111,104 +114,16 @@ public class MpqThroughputBackoffNone {
     @Benchmark
     @Group("nor")
     public void pollNoR(PollCounters counters) {
-        Integer e = q.poll();
+        counters.lazySet(0);
+        Integer e = q.poll(counters);
         if (e == null) {
             counters.pollsFailed++;
             backoff();
         } else if (e == TEST_ELEMENT) {
-            counters.pollsMade++;
-        } else {
-            escape = e;
-        }
-        if (DELAY_CONSUMER != 0) {
-            Blackhole.consumeCPU(DELAY_CONSUMER);
-        }
-    }
-
-    @Benchmark
-    @Group("bothr")
-    public void offerBothR(OfferCounters counters) {
-        if (!q.relaxedOffer(element)) {
-            counters.offersFailed++;
-            backoff();
-        } else {
-            counters.offersMade++;
-        }
-        if (DELAY_PRODUCER != 0) {
-            Blackhole.consumeCPU(DELAY_PRODUCER);
-        }
-    }
-
-    @Benchmark
-    @Group("bothr")
-    public void pollBothR(PollCounters counters) {
-        Integer e = q.relaxedPoll();
-        if (e == null) {
-            counters.pollsFailed++;
-            backoff();
-        } else if (e == TEST_ELEMENT) {
-            counters.pollsMade++;
-        } else {
-            escape = e;
-        }
-        if (DELAY_CONSUMER != 0) {
-            Blackhole.consumeCPU(DELAY_CONSUMER);
-        }
-    }
-
-    @Benchmark
-    @Group("pr")
-    public void offerPR(OfferCounters counters) {
-        if (!q.relaxedOffer(element)) {
-            counters.offersFailed++;
-            backoff();
-        } else {
-            counters.offersMade++;
-        }
-        if (DELAY_PRODUCER != 0) {
-            Blackhole.consumeCPU(DELAY_PRODUCER);
-        }
-    }
-
-    @Benchmark
-    @Group("pr")
-    public void pollPR(PollCounters counters) {
-        Integer e = q.poll();
-        if (e == null) {
-            counters.pollsFailed++;
-            backoff();
-        } else if (e == TEST_ELEMENT) {
-            counters.pollsMade++;
-        } else {
-            escape = e;
-        }
-        if (DELAY_CONSUMER != 0) {
-            Blackhole.consumeCPU(DELAY_CONSUMER);
-        }
-    }
-
-    @Benchmark
-    @Group("cr")
-    public void offerCR(OfferCounters counters) {
-        if (!q.offer(element)) {
-            counters.offersFailed++;
-            backoff();
-        } else {
-            counters.offersMade++;
-        }
-        if (DELAY_PRODUCER != 0) {
-            Blackhole.consumeCPU(DELAY_PRODUCER);
-        }
-    }
-
-    @Benchmark
-    @Group("cr")
-    public void pollCR(PollCounters counters) {
-        Integer e = q.relaxedPoll();
-        if (e == null) {
-            counters.pollsFailed++;
-            backoff();
-        } else if (e == TEST_ELEMENT) {
+            if (counters.get() > 0)
+            {
+                counters.spins += counters.get();
+            }
             counters.pollsMade++;
         } else {
             escape = e;

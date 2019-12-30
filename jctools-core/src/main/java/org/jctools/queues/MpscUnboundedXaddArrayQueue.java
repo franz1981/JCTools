@@ -20,6 +20,7 @@ import org.jctools.util.UnsafeAccess;
 
 import java.util.AbstractQueue;
 import java.util.Iterator;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.jctools.util.UnsafeAccess.UNSAFE;
 import static org.jctools.util.UnsafeAccess.fieldOffset;
@@ -220,7 +221,7 @@ public class MpscUnboundedXaddArrayQueue<E> extends MpscUnboundedXaddArrayQueueP
      * We're here because pChunk.index doesn't match the expectedChunkIndex. To resolve we must now chase the linked
      * chunks to the appropriate chunk. More than one producer may end up racing to add or discover new chunks.
      *
-     * @param initialChunk the starting point chunk, which does not match the required chunk index
+     * @param initialChunk       the starting point chunk, which does not match the required chunk index
      * @param requiredChunkIndex
      * @return the chunk matching the required index
      */
@@ -332,7 +333,6 @@ public class MpscUnboundedXaddArrayQueue<E> extends MpscUnboundedXaddArrayQueueP
     }
 
 
-
     @Override
     public E poll()
     {
@@ -362,6 +362,52 @@ public class MpscUnboundedXaddArrayQueue<E> extends MpscUnboundedXaddArrayQueueP
             else
             {
                 e = spinForElement(cChunk, cChunkOffset);
+            }
+        }
+        cChunk.soElement(cChunkOffset, null);
+        soConsumerIndex(cIndex + 1);
+        return e;
+    }
+
+    @Override
+    public E poll(AtomicLong spinCount)
+    {
+        final int chunkMask = this.chunkMask;
+        final long cIndex = this.lpConsumerIndex();
+        final int cChunkOffset = (int) (cIndex & chunkMask);
+
+        MpscUnboundedXaddChunk<E> cChunk = this.consumerChunk;
+        long spins = 0;
+        // start of new chunk?
+        if (cChunkOffset == 0 && cIndex != 0)
+        {
+            // pollNextBuffer will verify emptiness check
+            cChunk = pollNextBuffer(cChunk, cIndex, false, spinCount);
+            if (cChunk == null)
+            {
+                return null;
+            }
+            spins = spinCount.get();
+        }
+
+        E e = cChunk.lvElement(cChunkOffset);
+        if (e == null)
+        {
+            if (lvProducerIndex() == cIndex)
+            {
+                return null;
+            }
+            else
+            {
+                if (spins > 0)
+                {
+                    spinCount.lazySet(0);
+                }
+                e = spinForElement(cChunk, cChunkOffset, spinCount);
+                if (spins > 0)
+                {
+                    spinCount.lazySet(spinCount.get() + spins);
+                }
             }
         }
         cChunk.soElement(cChunkOffset, null);
@@ -404,8 +450,13 @@ public class MpscUnboundedXaddArrayQueue<E> extends MpscUnboundedXaddArrayQueueP
 
     private MpscUnboundedXaddChunk<E> pollNextBuffer(MpscUnboundedXaddChunk<E> cChunk, long cIndex, boolean relaxed)
     {
+        return pollNextBuffer(cChunk, cIndex, relaxed, null);
+    }
+
+    private MpscUnboundedXaddChunk<E> pollNextBuffer(MpscUnboundedXaddChunk<E> cChunk, long cIndex, boolean relaxed, AtomicLong spins)
+    {
         final MpscUnboundedXaddChunk<E> next = relaxed ?
-            cChunk.lvNext() : spinForNextIfNotEmpty(cChunk, cIndex);
+            cChunk.lvNext() : spinForNextIfNotEmpty(cChunk, cIndex, spins);
 
         if (next == null)
         {
@@ -427,7 +478,10 @@ public class MpscUnboundedXaddArrayQueue<E> extends MpscUnboundedXaddArrayQueueP
         return next;
     }
 
-    private MpscUnboundedXaddChunk<E> spinForNextIfNotEmpty(MpscUnboundedXaddChunk<E> cChunk, long cIndex)
+    private MpscUnboundedXaddChunk<E> spinForNextIfNotEmpty(
+        MpscUnboundedXaddChunk<E> cChunk,
+        long cIndex,
+        AtomicLong spins)
     {
         MpscUnboundedXaddChunk<E> next = cChunk.lvNext();
         if (next == null)
@@ -436,23 +490,44 @@ public class MpscUnboundedXaddArrayQueue<E> extends MpscUnboundedXaddArrayQueueP
             {
                 return null;
             }
+            long s = 0;
             while ((next = cChunk.lvNext()) == null)
             {
-
+                s++;
+            }
+            if (spins != null && s > 0)
+            {
+                spins.lazySet(s);
             }
         }
         return next;
     }
 
-    private static <E> E spinForElement(MpscUnboundedXaddChunk<E> chunk, int offset)
+    private MpscUnboundedXaddChunk<E> spinForNextIfNotEmpty(MpscUnboundedXaddChunk<E> cChunk, long cIndex)
+    {
+        return spinForNextIfNotEmpty(cChunk, cIndex, null);
+    }
+
+    private static <E> E spinForElement(MpscUnboundedXaddChunk<E> chunk, int offset, AtomicLong spins)
     {
         E e;
+        long s = 0;
         while ((e = chunk.lvElement(offset)) == null)
         {
-
+            s++;
+        }
+        if (spins != null && s > 0)
+        {
+            spins.lazySet(s);
         }
         return e;
     }
+
+    private static <E> E spinForElement(MpscUnboundedXaddChunk<E> chunk, int offset)
+    {
+        return spinForElement(chunk, offset, null);
+    }
+
     @Override
     public Iterator<E> iterator()
     {

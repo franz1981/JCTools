@@ -21,6 +21,7 @@ import org.jctools.util.RangeUtil;
 import java.util.AbstractQueue;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.jctools.queues.LinkedArrayQueueUtil.length;
 import static org.jctools.queues.LinkedArrayQueueUtil.modifiedCalcCircularRefElementOffset;
@@ -269,6 +270,48 @@ public abstract class BaseMpscLinkedArrayQueue<E> extends BaseMpscLinkedArrayQue
         final long offset = modifiedCalcCircularRefElementOffset(pIndex, mask);
         soRefElement(buffer, offset, e); // release element e
         return true;
+    }
+
+    @Override
+    public E poll(AtomicLong spinCount)
+    {
+        final E[] buffer = consumerBuffer;
+        final long index = lpConsumerIndex();
+        final long mask = consumerMask;
+
+        final long offset = modifiedCalcCircularRefElementOffset(index, mask);
+        Object e = lvRefElement(buffer, offset);// LoadLoad
+        if (e == null)
+        {
+            if (index != lvProducerIndex())
+            {
+                // poll() == null iff queue is empty, null element is not strong enough indicator, so we must
+                // check the producer index. If the queue is indeed not empty we spin until element is
+                // visible.
+                long spins = 0;
+                do
+                {
+                    e = lvRefElement(buffer, offset);
+                    spins++;
+                }
+                while (e == null);
+                spinCount.lazySet(spins);
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        if (e == JUMP)
+        {
+            final E[] nextBuffer = nextBuffer(buffer, mask);
+            return newBufferPoll(nextBuffer, index);
+        }
+
+        soRefElement(buffer, offset, null); // release element null
+        soConsumerIndex(index + 2); // release cIndex
+        return (E) e;
     }
 
     /**

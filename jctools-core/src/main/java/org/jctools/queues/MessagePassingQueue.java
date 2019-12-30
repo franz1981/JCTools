@@ -14,6 +14,7 @@
 package org.jctools.queues;
 
 import java.util.Queue;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Message passing queues are intended for concurrent method passing. A subset of {@link Queue} methods are provided
@@ -118,6 +119,17 @@ public interface MessagePassingQueue<T>
      * @return a message from the queue if one is available, {@code null} iff empty
      */
     T poll();
+
+    /**
+     * Called from the consumer thread subject to the restrictions appropriate to the implementation and
+     * according to the {@link Queue#poll()} interface.
+     *
+     * @return a message from the queue if one is available, {@code null} iff empty
+     */
+    default T poll(AtomicLong spinCount)
+    {
+        return poll();
+    }
 
     /**
      * Called from the consumer thread subject to the restrictions appropriate to the implementation and
