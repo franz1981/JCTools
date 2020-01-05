@@ -56,7 +56,7 @@ public class MpqBurstCost
     {
         if (warmup)
         {
-            q = MessagePassingQueueByTypeFactory.createQueue(qType, 128);
+            q = createQueue();
 
             final Event event = new Event();
 
@@ -76,13 +76,23 @@ public class MpqBurstCost
                 q.poll();
             }
         }
-        q = MessagePassingQueueByTypeFactory.buildQ(qType, qCapacity);
+        q = buildQueue();
         consumers = new Consumer[consumerCount];
         for (int i = 0; i < consumerCount; i++)
         {
             consumers[i] = new Consumer(q, i);
         }
         consumerExecutor = Executors.newFixedThreadPool(consumerCount);
+    }
+
+    MessagePassingQueue<Event> createQueue()
+    {
+        return MessagePassingQueueByTypeFactory.createQueue(qType, 128);
+    }
+
+    MessagePassingQueue<Event> buildQueue()
+    {
+        return MessagePassingQueueByTypeFactory.buildQ(qType, qCapacity);
     }
 
     @Setup(Level.Iteration)

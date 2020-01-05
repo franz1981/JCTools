@@ -56,7 +56,7 @@ public class QueueBurstCost
     {
         if (warmup)
         {
-            q = QueueByTypeFactory.createQueue(qType, 128);
+            q = createQueue();
 
             final Event event = new Event();
 
@@ -76,13 +76,23 @@ public class QueueBurstCost
                 q.poll();
             }
         }
-        q = QueueByTypeFactory.buildQ(qType, qCapacity);
+        q = buildQueue();
         consumers = new Consumer[consumerCount];
         for (int i = 0; i < consumerCount; i++)
         {
             consumers[i] = new Consumer(q, i);
         }
         consumerExecutor = Executors.newFixedThreadPool(consumerCount);
+    }
+
+    Queue<Event> createQueue()
+    {
+        return QueueByTypeFactory.createQueue(qType, 128);
+    }
+
+    Queue<Event> buildQueue()
+    {
+        return QueueByTypeFactory.buildQ(qType, qCapacity);
     }
 
     @Setup(Level.Iteration)
