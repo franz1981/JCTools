@@ -16,6 +16,7 @@ package org.jctools.jmh.latency;
 import org.jctools.queues.QueueByTypeFactory;
 import org.jctools.util.PortableJvmInfo;
 import org.jctools.util.Pow2;
+import org.jctools.util.ThreadHints;
 import org.jctools.util.UnsafeAccess;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
@@ -46,6 +47,8 @@ public class QueueBurstCost
     boolean warmup;
     @Param(value = {"132000"})
     String qCapacity;
+    @Param( {"false"})
+    boolean onSpinWait;
     Queue<Event> q;
     private ExecutorService consumerExecutor;
     private Consumer[] consumers;
@@ -54,6 +57,7 @@ public class QueueBurstCost
     @Setup(Level.Trial)
     public void setupQueueAndConsumers()
     {
+        System.setProperty(ThreadHints.DISABLE_ON_SPIN_WAIT, Boolean.valueOf(onSpinWait).toString());
         if (warmup)
         {
             q = createQueue();
