@@ -3,6 +3,7 @@ package org.jctools.queues;
 import org.jctools.queues.IndexedQueueSizeUtil.IndexedQueue;
 import org.jctools.util.PortableJvmInfo;
 import org.jctools.util.Pow2;
+import org.jctools.util.ThreadHints;
 import org.jctools.util.UnsafeAccess;
 
 import java.util.AbstractQueue;
@@ -338,8 +339,13 @@ abstract class MpUnboundedXaddArrayQueue<R extends MpUnboundedXaddChunk<R,E>, E>
             do
             {
                 next = cChunk.lvNext();
+                if (next != null)
+                {
+                    break;
+                }
+                ThreadHints.onSpinWait();
             }
-            while (next == null);
+            while (true);
         }
         return next;
     }

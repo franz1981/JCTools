@@ -14,6 +14,7 @@
 package org.jctools.queues;
 
 import org.jctools.util.InternalAPI;
+import org.jctools.util.ThreadHints;
 
 import java.util.Arrays;
 
@@ -61,6 +62,7 @@ final class MpmcUnboundedXaddChunk<E> extends MpUnboundedXaddChunk<MpmcUnbounded
             {
                 break;
             }
+            ThreadHints.onSpinWait();
         }
     }
 }

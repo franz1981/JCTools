@@ -1,6 +1,7 @@
 package org.jctools.queues;
 
 import org.jctools.util.InternalAPI;
+import org.jctools.util.ThreadHints;
 
 import static org.jctools.util.UnsafeAccess.UNSAFE;
 import static org.jctools.util.UnsafeAccess.fieldOffset;
@@ -88,8 +89,12 @@ class MpUnboundedXaddChunk<R,E>
         do
         {
             e = lvRefElement(buffer, offset);
+            if (isNull == (e == null))
+            {
+                return e;
+            }
+            ThreadHints.onSpinWait();
         }
-        while (isNull != (e == null));
-        return e;
+        while (true);
     }
 }

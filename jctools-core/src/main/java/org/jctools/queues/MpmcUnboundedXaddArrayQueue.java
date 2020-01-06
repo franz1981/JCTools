@@ -14,6 +14,8 @@
 package org.jctools.queues;
 
 
+import org.jctools.util.ThreadHints;
+
 /**
  * An MPMC array queue which starts at <i>initialCapacity</i> and grows unbounded in linked chunks.<br>
  * Differently from {@link MpmcArrayQueue} it is designed to provide a better scaling when more
@@ -215,6 +217,9 @@ public class MpmcUnboundedXaddArrayQueue<E> extends MpUnboundedXaddArrayQueue<Mp
         while (next == null)
         {
             next = cChunk.lvNext();
+            if (next == null) {
+                ThreadHints.onSpinWait();
+            }
         }
         // we can freely spin awaiting producer, because we are the only one in charge to
         // rotate the consumer buffer and use next
