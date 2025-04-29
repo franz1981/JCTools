@@ -18,11 +18,7 @@ public final class VarHandleQueueUtil {
       return (E) ARRAY_HANDLE.get(buffer, offset);
    }
 
-   public static <E> void spRefElement(E[] buffer, int offset, E value) {
-      ARRAY_HANDLE.setRelease(buffer, offset, value);
-   }
-
-   public static void soRefElement(Object[] buffer, int offset, Object value) {
+   public static <E> void soRefElement(E[] buffer, int offset, E value) {
       ARRAY_HANDLE.setRelease(buffer, offset, value);
    }
 
