@@ -214,7 +214,7 @@ public class SpscVarHandleArrayQueue<E> extends SpscVarHandleArrayQueueL3Pad<E> 
       }
       final int offset = calcCircularRefElementOffset(producerIndex, mask);
 
-      spRefElement(buffer, offset, e);
+      soRefElement(buffer, offset, e);
       soProducerIndex(producerIndex + 1); // ordered store -> atomic and ordered for size()
       return true;
    }
